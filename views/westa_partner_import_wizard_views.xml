@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_westa_partner_import_wizard_form" model="ir.ui.view">
+        <field name="name">westa.partner.import.wizard.form</field>
+        <field name="model">westa.partner.import.wizard</field>
+        <field name="arch" type="xml">
+            <form string="WESTA Partner Import">
+                <group>
+                    <field name="legacy_faad"/>
+                    <field name="batch_size"/>
+                    <field name="max_rows"/>
+                    <field name="vat_invalid_action"/>
+                    <field name="include_addresses"/>
+                </group>
+                <footer>
+                    <button name="action_run_import" type="object" string="Start Import" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_westa_partner_import_wizard" model="ir.actions.act_window">
+        <field name="name">WESTA Partner Import</field>
+        <field name="res_model">westa.partner.import.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <menuitem id="menu_westa_import_root" name="WESTA Import" sequence="60"/>
+    <menuitem
+        id="menu_westa_partner_import"
+        name="Partner Import"
+        parent="menu_westa_import_root"
+        action="action_westa_partner_import_wizard"
+        sequence="10"
+    />
+</odoo>
