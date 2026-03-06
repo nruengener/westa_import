@@ -29,11 +29,14 @@ class WestaPartnerImportWizard(models.TransientModel):
         )
 
         message = _(
-            "Import finished. written_total=%(written_total)s, "
+            "Import finished. source=%(source)s, legacy_faad=%(legacy_faad)s, written_total=%(written_total)s, "
             "created_parent=%(created_parent)s, updated_parent=%(updated_parent)s, "
             "created_contact=%(created_contact)s, updated_contact=%(updated_contact)s, "
-            "created_address=%(created_address)s, updated_address=%(updated_address)s"
+            "created_address=%(created_address)s, updated_address=%(updated_address)s, "
+            "skipped_parent_missing=%(skipped_parent_missing)s"
         ) % {
+            "source": stats.get("staging_schema", "?"),
+            "legacy_faad": stats.get("legacy_faad_filter", "ALL"),
             "written_total": stats.get("written_total", 0),
             "created_parent": stats.get("created_parent", 0),
             "updated_parent": stats.get("updated_parent", 0),
@@ -41,6 +44,10 @@ class WestaPartnerImportWizard(models.TransientModel):
             "updated_contact": stats.get("updated_contact", 0),
             "created_address": stats.get("created_address", 0),
             "updated_address": stats.get("updated_address", 0),
+            "skipped_parent_missing": (
+                stats.get("skipped_parent_missing_contact", 0)
+                + stats.get("skipped_parent_missing_address", 0)
+            ),
         }
         return {
             "type": "ir.actions.client",

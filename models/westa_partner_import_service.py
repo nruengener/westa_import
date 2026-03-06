@@ -1,8 +1,16 @@
 import re
 from collections import defaultdict
+from contextlib import closing
 
 from odoo import _, api, models
 from odoo.exceptions import UserError
+
+try:
+    import psycopg2
+    from psycopg2 import extras as psycopg2_extras
+except Exception:  # pragma: no cover - dependency varies by Odoo runtime
+    psycopg2 = None
+    psycopg2_extras = None
 
 
 class WestaPartnerImportService(models.AbstractModel):
@@ -30,6 +38,12 @@ class WestaPartnerImportService(models.AbstractModel):
             raise UserError(_("max_rows must be >= 0"))
         if vat_invalid_action not in {"blank", "drop", "keep"}:
             raise UserError(_("vat_invalid_action must be one of blank, drop, keep"))
+
+        staging_pg_dsn = (self._get_param("westa_import.staging_pg_dsn", "") or "").strip()
+        if not staging_pg_dsn:
+            raise UserError(
+                _("Missing system parameter westa_import.staging_pg_dsn for the staging PostgreSQL database.")
+            )
 
         schema = self._get_param("westa_import.partner_map_schema", self.DEFAULT_SCHEMA)
         tables = {
@@ -59,22 +73,26 @@ class WestaPartnerImportService(models.AbstractModel):
         if include_addresses:
             import_order.append("address")
 
-        for kind in import_order:
-            if max_rows and stats["written_total"] >= max_rows:
-                stats["limit_hit"] = 1
-                break
-            self._import_kind(
-                partner_env=partner_env,
-                schema=schema,
-                table=tables[kind],
-                kind=kind,
-                legacy_faad=(legacy_faad or "").strip() or None,
-                batch_size=batch_size,
-                max_rows=max_rows,
-                vat_invalid_action=vat_invalid_action,
-                stats=stats,
-            )
+        with closing(self._connect_staging(staging_pg_dsn)) as staging_conn:
+            for kind in import_order:
+                if max_rows and stats["written_total"] >= max_rows:
+                    stats["limit_hit"] = 1
+                    break
+                self._import_kind(
+                    partner_env=partner_env,
+                    staging_conn=staging_conn,
+                    schema=schema,
+                    table=tables[kind],
+                    kind=kind,
+                    legacy_faad=(legacy_faad or "").strip() or None,
+                    batch_size=batch_size,
+                    max_rows=max_rows,
+                    vat_invalid_action=vat_invalid_action,
+                    stats=stats,
+                )
 
+        stats["staging_schema"] = schema
+        stats["legacy_faad_filter"] = (legacy_faad or "").strip() or "ALL"
         return dict(stats)
 
     @api.model
@@ -96,9 +114,22 @@ class WestaPartnerImportService(models.AbstractModel):
             include_addresses=include_addresses,
         )
 
+    def _connect_staging(self, dsn):
+        if psycopg2 is None or psycopg2_extras is None:
+            raise UserError(
+                _("Missing dependency 'psycopg2' in the Odoo environment. Install the PostgreSQL driver first.")
+            )
+        try:
+            conn = psycopg2.connect(dsn)
+            conn.autocommit = True
+            return conn
+        except Exception as exc:
+            raise UserError(_("Failed to connect to staging PostgreSQL: %s") % exc) from exc
+
     def _import_kind(
         self,
         partner_env,
+        staging_conn,
         schema,
         table,
         kind,
@@ -108,7 +139,7 @@ class WestaPartnerImportService(models.AbstractModel):
         vat_invalid_action,
         stats,
     ):
-        columns = self._table_columns(schema, table)
+        columns = self._table_columns(staging_conn, schema, table)
         select_sql = self._build_select_clause(columns)
 
         offset = 0
@@ -123,6 +154,7 @@ class WestaPartnerImportService(models.AbstractModel):
                 fetch_limit = batch_size
 
             rows = self._fetch_batch(
+                staging_conn=staging_conn,
                 schema=schema,
                 table=table,
                 select_sql=select_sql,
@@ -238,7 +270,7 @@ class WestaPartnerImportService(models.AbstractModel):
 
         return vals
 
-    def _fetch_batch(self, schema, table, select_sql, legacy_faad, limit, offset):
+    def _fetch_batch(self, staging_conn, schema, table, select_sql, legacy_faad, limit, offset):
         where = ""
         params = []
         if legacy_faad:
@@ -250,21 +282,23 @@ class WestaPartnerImportService(models.AbstractModel):
             'ORDER BY x_oxaion_id NULLS LAST LIMIT %s OFFSET %s'
         )
         params.extend([limit, offset])
-        self.env.cr.execute(query, tuple(params))
-        return self.env.cr.dictfetchall()
+        with staging_conn.cursor(cursor_factory=psycopg2_extras.RealDictCursor) as cr:
+            cr.execute(query, tuple(params))
+            return cr.fetchall()
 
-    def _table_columns(self, schema, table):
-        self.env.cr.execute(
-            """
-            SELECT column_name
-            FROM information_schema.columns
-            WHERE table_schema = %s AND table_name = %s
-            """,
-            (schema, table),
-        )
-        cols = {r[0] for r in self.env.cr.fetchall()}
+    def _table_columns(self, staging_conn, schema, table):
+        with staging_conn.cursor() as cr:
+            cr.execute(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = %s AND table_name = %s
+                """,
+                (schema, table),
+            )
+            cols = {r[0] for r in cr.fetchall()}
         if not cols:
-            raise UserError(_("Map table not found: %s.%s") % (schema, table))
+            raise UserError(_("Map table not found in staging DB: %s.%s") % (schema, table))
         return cols
 
     def _build_select_clause(self, cols):
