@@ -13,6 +13,7 @@
                     <field name="include_addresses"/>
                 </group>
                 <footer>
+                    <button name="action_open_settings" type="object" string="Configure DSN" class="btn-secondary"/>
                     <button name="action_run_import" type="object" string="Start Import" class="btn-primary"/>
                     <button string="Cancel" class="btn-secondary" special="cancel"/>
                 </footer>
@@ -27,12 +28,13 @@
         <field name="target">new</field>
     </record>
 
-    <menuitem id="menu_westa_import_root" name="WESTA Import" sequence="60"/>
+    <menuitem id="menu_westa_import_root" name="WESTA Import" sequence="60" groups="base.group_system"/>
     <menuitem
         id="menu_westa_partner_import"
         name="Partner Import"
         parent="menu_westa_import_root"
         action="action_westa_partner_import_wizard"
         sequence="10"
+        groups="base.group_system"
     />
 </odoo>

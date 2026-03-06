@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_westa_import_settings_form" model="ir.ui.view">
+        <field name="name">westa.import.settings.form</field>
+        <field name="model">westa.import.settings</field>
+        <field name="arch" type="xml">
+            <form string="WESTA Import Settings">
+                <group>
+                    <field name="staging_pg_dsn" password="True"/>
+                </group>
+                <footer>
+                    <button name="action_save" type="object" string="Save" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_westa_import_settings" model="ir.actions.act_window">
+        <field name="name">Configuration</field>
+        <field name="res_model">westa.import.settings</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <menuitem
+        id="menu_westa_import_settings"
+        name="Configuration"
+        parent="menu_westa_import_root"
+        action="action_westa_import_settings"
+        sequence="20"
+        groups="base.group_system"
+    />
+</odoo>

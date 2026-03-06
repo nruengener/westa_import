@@ -18,6 +18,16 @@ class WestaPartnerImportWizard(models.TransientModel):
     )
     include_addresses = fields.Boolean(string="Include Child Addresses", default=True)
 
+    def action_open_settings(self):
+        self.ensure_one()
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("WESTA Import Configuration"),
+            "res_model": "westa.import.settings",
+            "view_mode": "form",
+            "target": "new",
+        }
+
     def action_run_import(self):
         self.ensure_one()
         stats = self.env["westa.partner.import.service"].run_import(

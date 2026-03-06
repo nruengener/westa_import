@@ -9,6 +9,7 @@
     "data": [
         "security/ir.model.access.csv",
         "views/westa_partner_import_wizard_views.xml",
+        "views/westa_import_settings_views.xml",
         "data/ir_cron.xml",
     ],
     "installable": True,

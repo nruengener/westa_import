@@ -32,6 +32,8 @@ This means the addon is not responsible for discovery, raw extraction, or mappin
 
 - `westa_import.staging_pg_dsn` (PostgreSQL DSN for the staging DB; required)
 
+Admin users can configure this in the UI at `WESTA Import > Configuration`.
+
 ## Optional configuration via `ir.config_parameter`
 
 - `westa_import.partner_map_schema` (default: `oxaion_map`)
@@ -74,6 +76,7 @@ The importer is tolerant of missing optional columns because it introspects the 
 
 ## Security And Operations
 
+- The `WESTA Import` menu and configuration are restricted to Odoo administrators (`base.group_system`).
 - The staging PostgreSQL user should have read-only access to `oxaion_map.*`.
 - The addon should not be pointed at raw staging tables (`oxaion_stg.*`) or reject tables as primary input.
 - A normal run order is:
