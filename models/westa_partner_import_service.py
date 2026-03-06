@@ -1,3 +1,4 @@
+import logging
 import re
 from collections import defaultdict
 from contextlib import closing
@@ -11,6 +12,9 @@ try:
 except Exception:  # pragma: no cover - dependency varies by Odoo runtime
     psycopg2 = None
     psycopg2_extras = None
+
+
+_logger = logging.getLogger(__name__)
 
 
 class WestaPartnerImportService(models.AbstractModel):
@@ -178,6 +182,7 @@ class WestaPartnerImportService(models.AbstractModel):
                 break
 
     def _process_batch(self, partner_env, rows, kind, vat_invalid_action, stats):
+        partner_fields = set(partner_env._fields)
         xids = [r.get("x_oxaion_id") for r in rows if r.get("x_oxaion_id")]
         existing = {
             p["x_oxaion_id"]: p["id"]
@@ -208,6 +213,7 @@ class WestaPartnerImportService(models.AbstractModel):
             if vals is None:
                 stats[f"skipped_parent_missing_{kind}"] += 1
                 continue
+            vals = self._filter_existing_fields(vals, partner_fields)
 
             vat = vals.get("vat")
             if vat:
@@ -224,15 +230,29 @@ class WestaPartnerImportService(models.AbstractModel):
                     else:
                         stats[f"kept_invalid_vat_{kind}"] += 1
 
-            with self.env.cr.savepoint():
+            try:
                 if xid in existing:
                     partner_env.browse(existing[xid]).write(vals)
                     stats[f"updated_{kind}"] += 1
                 else:
-                    rec = partner_env.create(dict(vals, x_oxaion_id=xid))
+                    create_vals = dict(vals)
+                    if "x_oxaion_id" in partner_fields:
+                        create_vals["x_oxaion_id"] = xid
+                    rec = partner_env.create(create_vals)
                     existing[xid] = rec.id
                     stats[f"created_{kind}"] += 1
                 stats["written_total"] += 1
+            except Exception as exc:
+                _logger.exception(
+                    "WESTA import failed for kind=%s xid=%s vals=%s",
+                    kind,
+                    xid,
+                    vals,
+                )
+                raise UserError(
+                    _("Failed to import %(kind)s record %(xid)s: %(error)s")
+                    % {"kind": kind, "xid": xid, "error": exc}
+                ) from exc
 
     def _vals_from_row(self, row, kind, parent_map):
         vals = {
@@ -269,6 +289,9 @@ class WestaPartnerImportService(models.AbstractModel):
             vals["parent_id"] = parent_id
 
         return vals
+
+    def _filter_existing_fields(self, vals, existing_fields):
+        return {key: value for key, value in vals.items() if key in existing_fields}
 
     def _fetch_batch(self, staging_conn, schema, table, select_sql, legacy_faad, limit, offset):
         where = ""
