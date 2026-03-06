@@ -1,5 +1,6 @@
 import logging
 import re
+import traceback
 from collections import defaultdict
 from contextlib import closing
 
@@ -232,8 +233,13 @@ class WestaPartnerImportService(models.AbstractModel):
 
             try:
                 if xid in existing:
-                    partner_env.browse(existing[xid]).write(vals)
-                    stats[f"updated_{kind}"] += 1
+                    partner = partner_env.browse(existing[xid])
+                    write_vals = self._changed_vals(partner, vals)
+                    if write_vals:
+                        self._write_with_field_diagnostics(partner, write_vals, kind, xid)
+                        stats[f"updated_{kind}"] += 1
+                    else:
+                        stats[f"unchanged_{kind}"] += 1
                 else:
                     create_vals = dict(vals)
                     if "x_oxaion_id" in partner_fields:
@@ -243,6 +249,7 @@ class WestaPartnerImportService(models.AbstractModel):
                     stats[f"created_{kind}"] += 1
                 stats["written_total"] += 1
             except Exception as exc:
+                tb = traceback.format_exc()
                 _logger.exception(
                     "WESTA import failed for kind=%s xid=%s vals=%s",
                     kind,
@@ -250,8 +257,15 @@ class WestaPartnerImportService(models.AbstractModel):
                     vals,
                 )
                 raise UserError(
-                    _("Failed to import %(kind)s record %(xid)s: %(error)s")
-                    % {"kind": kind, "xid": xid, "error": exc}
+                    _(
+                        "Failed to import %(kind)s record %(xid)s: %(error)s\n\nTraceback:\n%(traceback)s"
+                    )
+                    % {
+                        "kind": kind,
+                        "xid": xid,
+                        "error": exc,
+                        "traceback": tb[-4000:],
+                    }
                 ) from exc
 
     def _vals_from_row(self, row, kind, parent_map):
@@ -292,6 +306,42 @@ class WestaPartnerImportService(models.AbstractModel):
 
     def _filter_existing_fields(self, vals, existing_fields):
         return {key: value for key, value in vals.items() if key in existing_fields}
+
+    def _changed_vals(self, partner, vals):
+        changed = {}
+        for field_name, value in vals.items():
+            field = partner._fields.get(field_name)
+            if not field:
+                continue
+            current = partner[field_name]
+            if field.type == "many2one":
+                current_value = current.id or False
+            else:
+                current_value = current
+            if current_value != value:
+                changed[field_name] = value
+        return changed
+
+    def _write_with_field_diagnostics(self, partner, vals, kind, xid):
+        try:
+            partner.write(vals)
+            return
+        except Exception as exc:
+            failing_field = None
+            for field_name, value in vals.items():
+                try:
+                    partner.write({field_name: value})
+                except Exception:
+                    failing_field = field_name
+                    break
+            if failing_field:
+                raise UserError(
+                    _(
+                        "Failed to import %(kind)s record %(xid)s while writing field %(field)s: %(error)s"
+                    )
+                    % {"kind": kind, "xid": xid, "field": failing_field, "error": exc}
+                ) from exc
+            raise
 
     def _fetch_batch(self, staging_conn, schema, table, select_sql, legacy_faad, limit, offset):
         where = ""
